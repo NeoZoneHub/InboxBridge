@@ -6,10 +6,10 @@ const cheerio = require("cheerio")
 const bot = new Telegraf(process.env.BOT_TOKEN)
 
 const CHANNEL_USERNAME = "@digitalcrew2"
-const OPT_GROUP_URL = "https://t.me/DigitalaOpt"
-const OPT_CHANNEL_ID = -1003444717562
+const GROUP_ID = -1003575360854
+const OPT_GROUP_URL = "https://t.me/+FvKX3xIqsIpiYmI0"
 
-const otpWatchers = {}
+const watchers = {}
 const sentOtps = new Set()
 
 async function isSubscribed(ctx) {
@@ -21,7 +21,19 @@ async function isSubscribed(ctx) {
   }
 }
 
-bot.start(async ctx => {
+function detectPlatform(text) {
+  const t = text.toLowerCase()
+  if (t.includes("whatsapp")) return "WhatsApp"
+  if (t.includes("tiktok")) return "TikTok"
+  if (t.includes("telegram")) return "Telegram"
+  if (t.includes("facebook")) return "Facebook"
+  if (t.includes("instagram")) return "Instagram"
+  if (t.includes("google")) return "Google"
+  if (t.includes("twitter") || t.includes("x.com")) return "X / Twitter"
+  return "Inconnue"
+}
+
+bot.start(ctx => {
   ctx.reply(
     "🚀 *Bienvenue sur le bot de numéros virtuels*\n\n👉 Abonne-toi au canal puis clique sur *Vérifier*.",
     {
@@ -35,8 +47,7 @@ bot.start(async ctx => {
 })
 
 bot.action("check_sub", async ctx => {
-  const ok = await isSubscribed(ctx)
-  if (!ok) {
+  if (!(await isSubscribed(ctx))) {
     return ctx.answerCbQuery("❌ Abonnement non détecté", { show_alert: true })
   }
 
@@ -44,10 +55,8 @@ bot.action("check_sub", async ctx => {
   const $ = cheerio.load(data)
 
   const buttons = []
-
   $('a[href^="/en/countries/"]').each((i, el) => {
-    const href = $(el).attr("href")
-    const code = href.split("/").pop()
+    const code = $(el).attr("href").split("/").pop()
     const name = $(el).text().trim()
     if (code && name) {
       buttons.push(Markup.button.callback(name, `country_${code}`))
@@ -64,14 +73,14 @@ bot.action("check_sub", async ctx => {
 })
 
 bot.action(/^country_/, async ctx => {
-  const code = ctx.callbackQuery.data.split("_")[1]
+  const country = ctx.callbackQuery.data.split("_")[1]
 
-  if (otpWatchers[ctx.from.id]) {
-    clearInterval(otpWatchers[ctx.from.id])
-    delete otpWatchers[ctx.from.id]
+  if (watchers[ctx.from.id]) {
+    clearInterval(watchers[ctx.from.id])
+    delete watchers[ctx.from.id]
   }
 
-  const { data } = await axios.get(`https://sms24.me/en/countries/${code}`)
+  const { data } = await axios.get(`https://sms24.me/en/countries/${country}`)
   const $ = cheerio.load(data)
 
   const numbers = []
@@ -86,62 +95,53 @@ bot.action(/^country_/, async ctx => {
   const number = numbers[Math.floor(Math.random() * numbers.length)]
 
   ctx.editMessageText(
-    `📱 *Numéro virtuel actif*\n\n🌍 ${code.toUpperCase()}\n☎️ \`${number}\`\n\nLes OTP seront envoyés automatiquement.`,
+    `📱 *Numéro actif*\n\n🌍 ${country.toUpperCase()}\n☎️ \`${number}\``,
     {
       parse_mode: "Markdown",
       ...Markup.inlineKeyboard([
-        [Markup.button.callback("🔁 Changer le numéro", `change_${code}`)],
-        [
-          Markup.button.url("📩 OPT Groupe", OPT_GROUP_URL),
-          Markup.button.callback("🔙 Retour", "back")
-        ]
+        [Markup.button.callback("🔁 Changer le numéro", `change_${country}`)],
+        [Markup.button.url("📩 Groupe OTP", OPT_GROUP_URL)]
       ])
     }
   )
 
-  otpWatchers[ctx.from.id] = setInterval(async () => {
+  watchers[ctx.from.id] = setInterval(async () => {
     try {
       const { data } = await axios.get(`https://sms24.me/en/numbers/${number}`)
       const $ = cheerio.load(data)
 
       $(".sms-message").each(async (i, el) => {
         const text = $(el).text().trim()
-        const codeOtp = text.match(/\b\d{4,8}\b/)?.[0]
-        const key = number + codeOtp
+        const code = text.match(/\b\d{4,8}\b/)?.[0]
+        if (!code) return
 
-        if (codeOtp && !sentOtps.has(key)) {
-          sentOtps.add(key)
-          await bot.telegram.sendMessage(
-            OPT_CHANNEL_ID,
-            `📩 *Nouveau OTP*\n\n☎️ ${number}\n🔐 *${codeOtp}*\n\n${text}`,
-            { parse_mode: "Markdown" }
-          )
-        }
+        const key = number + code
+        if (sentOtps.has(key)) return
+        sentOtps.add(key)
+
+        const platform = detectPlatform(text)
+
+        await bot.telegram.sendMessage(
+          GROUP_ID,
+          `📩 *NOUVEAU CODE OTP*\n\n☎️ *Numéro* : \`${number}\`\n📦 *Plateforme* : ${platform}\n🔐 *Code* : \`${code}\`\n\n📝 ${text}\n\n━━━━━━━━━━━━━━━\n🔥 *Digital Crew 243* — ne dort jamais.`,
+          { parse_mode: "Markdown" }
+        )
       })
     } catch {}
-  }, 20000)
+  }, 15000)
 })
 
-bot.action(/^change_/, async ctx => {
-  const code = ctx.callbackQuery.data.split("_")[1]
+bot.action(/^change_/, ctx => {
+  const country = ctx.callbackQuery.data.split("_")[1]
   ctx.answerCbQuery()
   ctx.deleteMessage()
   ctx.telegram.sendMessage(
     ctx.chat.id,
-    "🔄 Changement du numéro…",
+    "🔄 Changement du numéro",
     Markup.inlineKeyboard([
-      [Markup.button.callback("🔁 Charger un nouveau numéro", `country_${code}`)]
+      [Markup.button.callback("📱 Nouveau numéro", `country_${country}`)]
     ])
   )
-})
-
-bot.action("back", ctx => {
-  if (otpWatchers[ctx.from.id]) {
-    clearInterval(otpWatchers[ctx.from.id])
-    delete otpWatchers[ctx.from.id]
-  }
-  ctx.deleteMessage()
-  bot.start(ctx)
 })
 
 bot.launch()
