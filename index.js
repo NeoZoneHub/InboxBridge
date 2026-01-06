@@ -9,7 +9,7 @@ const CHANNEL_USERNAME = "@digitalcrew2"
 const OPT_GROUP_URL = "https://t.me/DigitalaOpt"
 const OPT_CHANNEL_ID = -1003444717562
 
-const userState = {}
+const otpWatchers = {}
 const sentOtps = new Set()
 
 async function isSubscribed(ctx) {
@@ -65,13 +65,16 @@ bot.action("check_sub", async ctx => {
 
 bot.action(/^country_/, async ctx => {
   const code = ctx.callbackQuery.data.split("_")[1]
-  userState[ctx.from.id] = { country: code }
+
+  if (otpWatchers[ctx.from.id]) {
+    clearInterval(otpWatchers[ctx.from.id])
+    delete otpWatchers[ctx.from.id]
+  }
 
   const { data } = await axios.get(`https://sms24.me/en/countries/${code}`)
   const $ = cheerio.load(data)
 
   const numbers = []
-
   $('a[href^="/en/numbers/"]').each((i, el) => {
     numbers.push($(el).attr("href").split("/").pop())
   })
@@ -81,14 +84,13 @@ bot.action(/^country_/, async ctx => {
   }
 
   const number = numbers[Math.floor(Math.random() * numbers.length)]
-  userState[ctx.from.id].number = number
 
   ctx.editMessageText(
     `📱 *Numéro virtuel actif*\n\n🌍 ${code.toUpperCase()}\n☎️ \`${number}\`\n\nLes OTP seront envoyés automatiquement.`,
     {
       parse_mode: "Markdown",
       ...Markup.inlineKeyboard([
-        [Markup.button.callback("🔁 Changer le numéro", "change_number")],
+        [Markup.button.callback("🔁 Changer le numéro", `change_${code}`)],
         [
           Markup.button.url("📩 OPT Groupe", OPT_GROUP_URL),
           Markup.button.callback("🔙 Retour", "back")
@@ -97,43 +99,47 @@ bot.action(/^country_/, async ctx => {
     }
   )
 
-  startOtpWatcher(number)
-})
-
-function startOtpWatcher(number) {
-  setInterval(async () => {
+  otpWatchers[ctx.from.id] = setInterval(async () => {
     try {
       const { data } = await axios.get(`https://sms24.me/en/numbers/${number}`)
       const $ = cheerio.load(data)
 
       $(".sms-message").each(async (i, el) => {
         const text = $(el).text().trim()
-        const code = text.match(/\b\d{4,8}\b/)?.[0]
-        const key = number + code
+        const codeOtp = text.match(/\b\d{4,8}\b/)?.[0]
+        const key = number + codeOtp
 
-        if (code && !sentOtps.has(key)) {
+        if (codeOtp && !sentOtps.has(key)) {
           sentOtps.add(key)
           await bot.telegram.sendMessage(
             OPT_CHANNEL_ID,
-            `📩 *Nouveau OTP*\n\n☎️ ${number}\n🔐 *${code}*\n\n${text}`,
+            `📩 *Nouveau OTP*\n\n☎️ ${number}\n🔐 *${codeOtp}*\n\n${text}`,
             { parse_mode: "Markdown" }
           )
         }
       })
     } catch {}
   }, 20000)
-}
+})
 
-bot.action("change_number", ctx => {
+bot.action(/^change_/, async ctx => {
+  const code = ctx.callbackQuery.data.split("_")[1]
   ctx.answerCbQuery()
-  ctx.telegram.emit("callback_query", {
-    data: `country_${userState[ctx.from.id].country}`,
-    from: ctx.from,
-    message: ctx.callbackQuery.message
-  })
+  ctx.deleteMessage()
+  ctx.telegram.sendMessage(
+    ctx.chat.id,
+    "🔄 Changement du numéro…",
+    Markup.inlineKeyboard([
+      [Markup.button.callback("🔁 Charger un nouveau numéro", `country_${code}`)]
+    ])
+  )
 })
 
 bot.action("back", ctx => {
+  if (otpWatchers[ctx.from.id]) {
+    clearInterval(otpWatchers[ctx.from.id])
+    delete otpWatchers[ctx.from.id]
+  }
   ctx.deleteMessage()
   bot.start(ctx)
 })
