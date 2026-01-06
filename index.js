@@ -1,13 +1,15 @@
 require("dotenv").config()
 const { Telegraf, Markup } = require("telegraf")
 const axios = require("axios")
+const cheerio = require("cheerio")
 
 const bot = new Telegraf(process.env.BOT_TOKEN)
 
 const CHANNEL_USERNAME = "@digitalcrew2"
+const OPT_GROUP_URL = "https://t.me/DigitalaOpt"
 const OPT_CHANNEL_ID = -3444717562
 
-let userCountry = {}
+const userState = {}
 
 async function isSubscribed(ctx) {
   try {
@@ -19,85 +21,105 @@ async function isSubscribed(ctx) {
 }
 
 bot.start(async ctx => {
+  ctx.reply(
+    "🚀 *Bienvenue sur le bot de numéros virtuels*\n\n👉 Abonne-toi d’abord au canal officiel puis clique sur *Vérifier*.",
+    {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([
+        [Markup.button.url("📢 Rejoindre le canal", "https://t.me/digitalcrew2")],
+        [Markup.button.callback("✅ Vérifier", "check_sub")]
+      ])
+    }
+  )
+})
+
+bot.action("check_sub", async ctx => {
   const ok = await isSubscribed(ctx)
   if (!ok) {
-    return ctx.reply(
-      "🚀 *Accès requis*\n\nPour utiliser ce bot de numéros virtuels, tu dois d’abord rejoindre notre canal officiel.\n\nUne fois abonné, reviens ici et clique à nouveau sur *Start*.",
-      {
-        parse_mode: "Markdown",
-        ...Markup.inlineKeyboard([
-          [Markup.button.url("📢 Rejoindre le canal", "https://t.me/digitalcrew2")]
-        ])
-      }
-    )
+    return ctx.answerCbQuery("❌ Abonnement non détecté", { show_alert: true })
   }
 
-  const { data } = await axios.get("https://api.vreden.my.id/api/tools/fakenumber/country")
-  const buttons = data.result.map(c =>
-    [Markup.button.callback(c.title, `country_${c.id}`)]
-  )
+  const { data } = await axios.get("https://sms24.me/en/countries")
+  const $ = cheerio.load(data)
 
-  ctx.reply(
+  const buttons = []
+  $(".country-box a").each((i, el) => {
+    const name = $(el).text().trim()
+    const code = $(el).attr("href").split("/").pop()
+    buttons.push([Markup.button.callback(name, `country_${code}`)])
+  })
+
+  ctx.editMessageText(
     "🌍 *Choisis un pays pour obtenir un numéro virtuel*",
     {
       parse_mode: "Markdown",
-      ...Markup.inlineKeyboard(buttons, { columns: 2 })
+      ...Markup.inlineKeyboard(buttons.slice(0, 40), { columns: 2 })
     }
   )
 })
 
 bot.action(/^country_/, async ctx => {
-  const country = ctx.callbackQuery.data.split("_")[1]
-  userCountry[ctx.from.id] = country
+  const code = ctx.callbackQuery.data.split("_")[1]
+  userState[ctx.from.id] = { country: code }
 
-  const { data } = await axios.get(
-    `https://api.vreden.my.id/api/tools/fakenumber/listnumber?id=${country}`
-  )
+  const { data } = await axios.get(`https://sms24.me/en/countries/${code}`)
+  const $ = cheerio.load(data)
 
-  if (!data.result.length) {
+  const numbers = []
+  $(".number-boxes-item a").each((i, el) => {
+    numbers.push($(el).attr("href"))
+  })
+
+  if (!numbers.length) {
     return ctx.answerCbQuery("Aucun numéro disponible")
   }
 
-  const number = data.result[0].number
+  const numberPath = numbers[Math.floor(Math.random() * numbers.length)]
+  const number = numberPath.split("/").pop()
+  userState[ctx.from.id].number = number
 
   ctx.editMessageText(
-    `📱 *Numéro virtuel disponible*\n\n🌍 Pays : ${country.toUpperCase()}\n☎️ Numéro : \`${number}\`\n\nLes codes OPT reçus seront envoyés automatiquement dans le groupe.`,
+    `📱 *Numéro virtuel disponible*\n\n🌍 Pays : ${code.toUpperCase()}\n☎️ Numéro : \`${number}\`\n\nLes codes OPT seront envoyés automatiquement.`,
     {
       parse_mode: "Markdown",
       ...Markup.inlineKeyboard([
-        [Markup.button.callback("🔁 Changer le numéro", "change_num")],
+        [Markup.button.callback("🔁 Changer le numéro", "change_number")],
         [
-          Markup.button.url("📩 OPT Groupe", "https://t.me/DigitalaOpt"),
+          Markup.button.url("📩 OPT Groupe", OPT_GROUP_URL),
           Markup.button.callback("🔙 Retour", "back")
         ]
       ])
     }
   )
 
-  setInterval(async () => {
-    const { data } = await axios.get(
-      `https://api.vreden.my.id/api/tools/fakenumber/message?nomor=${encodeURIComponent(number)}`
-    )
-
-    if (data.result?.length) {
-      for (const msg of data.result) {
-        const code = msg.content.match(/\b\d{4,8}\b/)?.[0] || "N/A"
-        await bot.telegram.sendMessage(
-          OPT_CHANNEL_ID,
-          `📩 *Nouveau OPT*\n\n☎️ ${number}\n🔐 Code : *${code}*\n🕒 ${msg.time_wib}\n\n${msg.content}`,
-          { parse_mode: "Markdown" }
-        )
-      }
-    }
-  }, 15000)
+  startOtpWatcher(number)
 })
 
-bot.action("change_num", async ctx => {
-  const country = userCountry[ctx.from.id]
+function startOtpWatcher(number) {
+  setInterval(async () => {
+    try {
+      const { data } = await axios.get(`https://sms24.me/en/numbers/${number}`)
+      const $ = cheerio.load(data)
+
+      $(".sms-message").each(async (i, el) => {
+        const text = $(el).text().trim()
+        const code = text.match(/\b\d{4,8}\b/)?.[0]
+        if (code) {
+          await bot.telegram.sendMessage(
+            OPT_CHANNEL_ID,
+            `📩 *Nouveau OPT*\n\n☎️ ${number}\n🔐 Code : *${code}*\n\n${text}`,
+            { parse_mode: "Markdown" }
+          )
+        }
+      })
+    } catch {}
+  }, 20000)
+}
+
+bot.action("change_number", async ctx => {
   ctx.answerCbQuery()
-  ctx.deleteMessage()
   ctx.telegram.emit("callback_query", {
-    data: `country_${country}`,
+    data: `country_${userState[ctx.from.id].country}`,
     from: ctx.from,
     message: ctx.callbackQuery.message
   })
@@ -105,7 +127,7 @@ bot.action("change_num", async ctx => {
 
 bot.action("back", async ctx => {
   ctx.deleteMessage()
-  bot.handleUpdate({ message: { text: "/start", from: ctx.from, chat: ctx.chat } })
+  bot.start(ctx)
 })
 
 bot.launch()
