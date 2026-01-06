@@ -7,9 +7,10 @@ const bot = new Telegraf(process.env.BOT_TOKEN)
 
 const CHANNEL_USERNAME = "@digitalcrew2"
 const OPT_GROUP_URL = "https://t.me/DigitalaOpt"
-const OPT_CHANNEL_ID = -3444717562
+const OPT_CHANNEL_ID = -1003444717562
 
 const userState = {}
+const sentOtps = new Set()
 
 async function isSubscribed(ctx) {
   try {
@@ -22,7 +23,7 @@ async function isSubscribed(ctx) {
 
 bot.start(async ctx => {
   ctx.reply(
-    "🚀 *Bienvenue sur le bot de numéros virtuels*\n\n👉 Abonne-toi d’abord au canal officiel puis clique sur *Vérifier*.",
+    "🚀 *Bienvenue sur le bot de numéros virtuels*\n\n👉 Abonne-toi au canal puis clique sur *Vérifier*.",
     {
       parse_mode: "Markdown",
       ...Markup.inlineKeyboard([
@@ -43,17 +44,21 @@ bot.action("check_sub", async ctx => {
   const $ = cheerio.load(data)
 
   const buttons = []
-  $(".country-box a").each((i, el) => {
+
+  $('a[href^="/en/countries/"]').each((i, el) => {
+    const href = $(el).attr("href")
+    const code = href.split("/").pop()
     const name = $(el).text().trim()
-    const code = $(el).attr("href").split("/").pop()
-    buttons.push([Markup.button.callback(name, `country_${code}`)])
+    if (code && name) {
+      buttons.push(Markup.button.callback(name, `country_${code}`))
+    }
   })
 
   ctx.editMessageText(
     "🌍 *Choisis un pays pour obtenir un numéro virtuel*",
     {
       parse_mode: "Markdown",
-      ...Markup.inlineKeyboard(buttons.slice(0, 40), { columns: 2 })
+      ...Markup.inlineKeyboard(buttons, { columns: 2 })
     }
   )
 })
@@ -66,20 +71,20 @@ bot.action(/^country_/, async ctx => {
   const $ = cheerio.load(data)
 
   const numbers = []
-  $(".number-boxes-item a").each((i, el) => {
-    numbers.push($(el).attr("href"))
+
+  $('a[href^="/en/numbers/"]').each((i, el) => {
+    numbers.push($(el).attr("href").split("/").pop())
   })
 
   if (!numbers.length) {
-    return ctx.answerCbQuery("Aucun numéro disponible")
+    return ctx.answerCbQuery("Aucun numéro actif")
   }
 
-  const numberPath = numbers[Math.floor(Math.random() * numbers.length)]
-  const number = numberPath.split("/").pop()
+  const number = numbers[Math.floor(Math.random() * numbers.length)]
   userState[ctx.from.id].number = number
 
   ctx.editMessageText(
-    `📱 *Numéro virtuel disponible*\n\n🌍 Pays : ${code.toUpperCase()}\n☎️ Numéro : \`${number}\`\n\nLes codes OPT seront envoyés automatiquement.`,
+    `📱 *Numéro virtuel actif*\n\n🌍 ${code.toUpperCase()}\n☎️ \`${number}\`\n\nLes OTP seront envoyés automatiquement.`,
     {
       parse_mode: "Markdown",
       ...Markup.inlineKeyboard([
@@ -104,10 +109,13 @@ function startOtpWatcher(number) {
       $(".sms-message").each(async (i, el) => {
         const text = $(el).text().trim()
         const code = text.match(/\b\d{4,8}\b/)?.[0]
-        if (code) {
+        const key = number + code
+
+        if (code && !sentOtps.has(key)) {
+          sentOtps.add(key)
           await bot.telegram.sendMessage(
             OPT_CHANNEL_ID,
-            `📩 *Nouveau OPT*\n\n☎️ ${number}\n🔐 Code : *${code}*\n\n${text}`,
+            `📩 *Nouveau OTP*\n\n☎️ ${number}\n🔐 *${code}*\n\n${text}`,
             { parse_mode: "Markdown" }
           )
         }
@@ -116,7 +124,7 @@ function startOtpWatcher(number) {
   }, 20000)
 }
 
-bot.action("change_number", async ctx => {
+bot.action("change_number", ctx => {
   ctx.answerCbQuery()
   ctx.telegram.emit("callback_query", {
     data: `country_${userState[ctx.from.id].country}`,
@@ -125,7 +133,7 @@ bot.action("change_number", async ctx => {
   })
 })
 
-bot.action("back", async ctx => {
+bot.action("back", ctx => {
   ctx.deleteMessage()
   bot.start(ctx)
 })
