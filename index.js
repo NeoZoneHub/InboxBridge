@@ -10,7 +10,7 @@ const GROUP_ID = -1003575360854
 const OPT_GROUP_URL = "https://t.me/+FvKX3xIqsIpiYmI0"
 
 const watchers = {}
-const sentOtps = new Set()
+const sentMessages = new Set()
 
 async function isSubscribed(ctx) {
   try {
@@ -112,18 +112,19 @@ bot.action(/^country_/, async ctx => {
 
       $(".sms-message").each(async (i, el) => {
         const text = $(el).text().trim()
-        const code = text.match(/\b\d{4,8}\b/)?.[0]
-        if (!code) return
+        if (!text) return
 
-        const key = number + code
-        if (sentOtps.has(key)) return
-        sentOtps.add(key)
+        const messageId = number + "_" + text.replace(/\s+/g, '')
+        if (sentMessages.has(messageId)) return
+        sentMessages.add(messageId)
 
+        const codeMatch = text.match(/\b\d{4,8}\b/)
+        const code = codeMatch ? codeMatch[0] : "Non détecté"
         const platform = detectPlatform(text)
 
         await bot.telegram.sendMessage(
           GROUP_ID,
-          `📩 *NOUVEAU CODE OTP*\n\n☎️ *Numéro* : \`${number}\`\n📦 *Plateforme* : ${platform}\n🔐 *Code* : \`${code}\`\n\n📝 ${text}\n\n━━━━━━━━━━━━━━━\n🔥 *Digital Crew 243* — ne dort jamais.`,
+          `📩 *NOUVEAU MESSAGE*\n\n☎️ *Numéro* : \`${number}\`\n📦 *Plateforme* : ${platform}\n🔐 *Code* : \`${code}\`\n\n📝 ${text}\n\n━━━━━━━━━━━━━━━\n🔥 *Digital Crew 243* — ne dort jamais.`,
           { parse_mode: "Markdown" }
         )
       })
