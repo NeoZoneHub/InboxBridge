@@ -30,7 +30,22 @@ function detectPlatform(text) {
   if (t.includes("instagram")) return "Instagram"
   if (t.includes("google")) return "Google"
   if (t.includes("twitter") || t.includes("x.com")) return "X / Twitter"
-  return "Inconnue"
+  if (t.includes("gopuff")) return "GoPuff"
+  if (t.includes("ath móvil")) return "ATH Móvil"
+  return "Autre"
+}
+
+function extractCode(text) {
+  const codeMatch = text.match(/\b\d{4,8}\b/)
+  return codeMatch ? codeMatch[0] : "Pas de code détecté"
+}
+
+function extractSender(text) {
+  if (text.includes("From:")) {
+    const match = text.match(/From:\s*(.+?)(?:\n|$)/)
+    return match ? match[1].trim() : "Expéditeur inconnu"
+  }
+  return "Expéditeur inconnu"
 }
 
 bot.start(ctx => {
@@ -118,15 +133,19 @@ bot.action(/^country_/, async ctx => {
         if (sentMessages.has(messageId)) return
         sentMessages.add(messageId)
 
-        const codeMatch = text.match(/\b\d{4,8}\b/)
-        const code = codeMatch ? codeMatch[0] : "Non détecté"
+        const code = extractCode(text)
         const platform = detectPlatform(text)
+        const sender = extractSender(text)
 
-        await bot.telegram.sendMessage(
-          GROUP_ID,
-          `📩 *NOUVEAU MESSAGE*\n\n☎️ *Numéro* : \`${number}\`\n📦 *Plateforme* : ${platform}\n🔐 *Code* : \`${code}\`\n\n📝 ${text}\n\n━━━━━━━━━━━━━━━\n🔥 *Digital Crew 243* — ne dort jamais.`,
-          { parse_mode: "Markdown" }
-        )
+        const messageText = `📩 *NOUVEAU MESSAGE*\n\n☎️ *Numéro* : \`${number}\`\n📨 *Expéditeur* : ${sender}\n📦 *Plateforme* : ${platform}\n🔐 *Code* : \`${code}\`\n\n📝 ${text}\n\n━━━━━━━━━━━━━━━\n🔥 *Digital Crew 243* — ne dort jamais.`
+
+        try {
+          await bot.telegram.sendMessage(
+            GROUP_ID,
+            messageText,
+            { parse_mode: "Markdown" }
+          )
+        } catch {}
       })
     } catch {}
   }, 15000)
