@@ -12,6 +12,7 @@ const LANG = '?lang=en';
 const PORT = process.env.PORT || 3000;
 
 const bot = new Telegraf(BOT_TOKEN);
+
 let activeNumbers = new Map();
 
 bot.use(async (ctx, next) => {
@@ -72,7 +73,8 @@ bot.action(/country_(.+)/, async (ctx) => {
   if (!numbers.length) return ctx.reply('❌ Aucun numéro disponible pour ce pays.');
 
   const num = numbers[0];
-  activeNumbers.set(num.full, { country, lastSentIndex: 0 });
+
+  activeNumbers.set(num.full, { country, lastSentTime: 0 });
 
   await ctx.reply(`✅ Numéro virtuel pour ${country}: +${num.full}`, Markup.inlineKeyboard([
     Markup.button.url('📤 Opt Groupe', GROUP_LINK)
@@ -83,24 +85,19 @@ bot.action(/country_(.+)/, async (ctx) => {
   await ctx.telegram.sendMessage(ADMIN_ID, `🟢 ${ctx.from.first_name} a reçu le numéro: +${num.full}`);
 });
 
-async function autoSendMessages() {
-  while (true) {
-    for (const [number, info] of activeNumbers) {
-      const messages = await getNumberInbox(info.country, number);
-      if (!messages.length) continue;
-
-      const lastIndex = info.lastSentIndex;
-      for (let i = lastIndex; i < messages.length; i++) {
-        await bot.telegram.sendMessage(GROUP_LINK, `📩 SMS de +${number} :\n${messages[i].text}`);
-        activeNumbers.get(number).lastSentIndex++;
-        await new Promise(r => setTimeout(r, 10000));
-      }
+setInterval(async () => {
+  for (const [number, info] of activeNumbers) {
+    const messages = await getNumberInbox(info.country, number);
+    if (!messages.length) continue;
+    const lastTime = info.lastSentTime;
+    const newMessages = messages.filter(m => new Date(m.time).getTime() > lastTime);
+    for (const msg of newMessages) {
+      await bot.telegram.sendMessage(GROUP_LINK, `📩 SMS de +${number} :\n${msg.text}`);
+      info.lastSentTime = new Date(msg.time).getTime();
+      await new Promise(r => setTimeout(r, 10000));
     }
-    await new Promise(r => setTimeout(r, 5000));
   }
-}
-
-autoSendMessages();
+}, 15000);
 
 const app = express();
 app.get('/', (req, res) => res.send('Bot Telegram actif !'));
