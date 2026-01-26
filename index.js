@@ -1,24 +1,26 @@
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
+const express = require('express');
 
 const BOT_TOKEN = process.env.BOT_TOKEN || '8301824678:AAFdeWjozDImkKHsYAhdtwr1LJJgrt7xMh8';
 const CHANNEL = '@digitalcrew2';
 const GROUP_ID = '-1003575360854';
 const ADMIN_ID = '6157845763';
-const BASE_API = 'https://onlinesim.io/api/v1/free_numbers_content'; // Endpoint principal
+const BASE_API = 'https://onlinesim.io/api/v1/free_numbers_content';
 const LANG = '?lang=en';
+const PORT = process.env.PORT || 3000;
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// Middleware abonnement
+// --- Middleware abonnement ---
 bot.use(async (ctx, next) => {
   if (ctx.updateType === 'message') {
     try {
       const chatMember = await ctx.telegram.getChatMember(CHANNEL, ctx.from.id);
       if (['left', 'kicked'].includes(chatMember.status)) {
         return ctx.reply(
-          `⚠️ Tu dois t'abonner à ${CHANNEL} pour utiliser ce bot !\n` +
+          `⚠️ Tu dois t'abonner à ${CHANNEL} pour utiliser le bot !\n` +
           `Clique ici pour t'abonner: ${CHANNEL}`
         );
       }
@@ -30,18 +32,17 @@ bot.use(async (ctx, next) => {
   return next();
 });
 
-// Start
+// --- Start ---
 bot.start(async (ctx) => {
   await ctx.reply(`👋 Salut ${ctx.from.first_name || ctx.from.username} !\nTu peux maintenant utiliser le bot.`);
 });
 
-// Fonction pour récupérer les pays en ligne
+// --- Fonctions numéros virtuels ---
 async function getOnlineCountries() {
   try {
     const res = await axios.get(`${BASE_API}/countries${LANG}`);
     if (res.data.response === '1') {
-      const online = res.data.counties.filter(c => c.online);
-      return online;
+      return res.data.counties.filter(c => c.online);
     }
     return [];
   } catch (err) {
@@ -50,7 +51,6 @@ async function getOnlineCountries() {
   }
 }
 
-// Fonction pour récupérer les numéros d’un pays
 async function getCountryNumbers(country) {
   try {
     const res = await axios.get(`${BASE_API}/countries/${country}${LANG}`);
@@ -67,7 +67,6 @@ async function getCountryNumbers(country) {
   }
 }
 
-// Fonction pour récupérer les messages d’un numéro
 async function getNumberInbox(country, number) {
   try {
     const res = await axios.get(`${BASE_API}/countries/${country}/${number}${LANG}`);
@@ -81,7 +80,7 @@ async function getNumberInbox(country, number) {
   }
 }
 
-// Commande /number
+// --- Commande /number ---
 bot.command('number', async (ctx) => {
   const prompt = await ctx.reply('📲 Récupération d’un numéro virtuel...');
   const countries = await getOnlineCountries();
@@ -90,14 +89,12 @@ bot.command('number', async (ctx) => {
     return ctx.telegram.editMessageText(ctx.chat.id, prompt.message_id, null, '❌ Aucun pays en ligne pour l’instant.');
   }
 
-  // Boucle pour trouver le premier numéro actif
   let found = false;
   for (let country of countries) {
     const numbers = await getCountryNumbers(country.name);
     for (let num of numbers) {
       const inbox = await getNumberInbox(country.name, num.full);
       if (inbox.length) {
-        // Envoi numéro à l'utilisateur
         await ctx.telegram.editMessageText(
           ctx.chat.id,
           prompt.message_id,
@@ -109,12 +106,10 @@ bot.command('number', async (ctx) => {
           ])
         );
 
-        // Envoi des derniers messages au groupe
         inbox.slice(-5).forEach(async m => {
           await ctx.telegram.sendMessage(GROUP_ID, `📩 SMS de +${num.full} :\n${m.text}`);
         });
 
-        // Notification admin
         await ctx.telegram.sendMessage(ADMIN_ID, `🟢 ${ctx.from.first_name} a reçu le numéro: +${num.full}`);
         found = true;
         break;
@@ -128,7 +123,7 @@ bot.command('number', async (ctx) => {
   }
 });
 
-// Callback Inbox
+// --- Callbacks Inbox & Nouveau numéro ---
 bot.action(/inbox_(.+)_(.+)/, async (ctx) => {
   const [country, number] = ctx.match.slice(1);
   const messages = await getNumberInbox(country, number);
@@ -136,12 +131,16 @@ bot.action(/inbox_(.+)_(.+)/, async (ctx) => {
   messages.slice(-5).forEach(m => ctx.reply(`📩 [${m.time}] ${m.text}`));
 });
 
-// Callback Nouveau numéro
 bot.action('new_number', async (ctx) => {
   await ctx.reply('🔄 Récupération d’un nouveau numéro...');
   await bot.telegram.sendMessage(ctx.from.id, '/number');
 });
 
-// Lancement du bot
+// --- Serveur HTTP minimal pour Render ---
+const app = express();
+app.get('/', (req, res) => res.send('Bot Telegram actif !'));
+app.listen(PORT, () => console.log(`Serveur HTTP actif sur le port ${PORT}`));
+
+// --- Lancement du bot Telegram ---
 bot.launch();
 console.log('Bot démarré...');
