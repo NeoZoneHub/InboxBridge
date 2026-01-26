@@ -1,112 +1,107 @@
-require("dotenv").config()
-const { Telegraf, Markup } = require("telegraf")
-const axios = require("axios")
-const cheerio = require("cheerio")
+require('dotenv').config();
+const { Telegraf, Markup } = require('telegraf');
+const axios = require('axios');
 
-const bot = new Telegraf(process.env.BOT_TOKEN)
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const CHANNEL = '@digitalcrew2';        
+const GROUP_ID = '-1003575360854';      
+const ADMIN_ID = '6157845763';          
+const NUM_API = process.env.NUM_API;     // L'API pour les numéros virtuels
 
-const CHANNEL_USERNAME = "@digitalcrew2"
-const GROUP_ID = -1003575360854
+const bot = new Telegraf(BOT_TOKEN);
 
-const watchers = {}
-const sent = new Set()
-
-async function isSubscribed(ctx) {
-  try {
-    const m = await ctx.telegram.getChatMember(CHANNEL_USERNAME, ctx.from.id)
-    return ["member", "administrator", "creator"].includes(m.status)
-  } catch {
-    return false
-  }
-}
-
-function extractCode(text) {
-  return text.match(/\b\d{4,8}\b/)?.[0] || "N/A"
-}
-
-bot.start(ctx => {
-  ctx.reply(
-    "🚀 Bienvenue\n\nAbonne-toi puis clique sur Vérifier",
-    Markup.inlineKeyboard([
-      [Markup.button.url("📢 Canal", "https://t.me/digitalcrew2")],
-      [Markup.button.callback("✅ Vérifier", "check")]
-    ])
-  )
-})
-
-bot.action("check", async ctx => {
-  if (!(await isSubscribed(ctx))) {
-    return ctx.answerCbQuery("Abonne-toi d’abord", { show_alert: true })
-  }
-
-  const { data } = await axios.get("https://sms24.me/en/countries")
-  const $ = cheerio.load(data)
-
-  const btns = []
-  $('a[href^="/en/countries/"]').each((_, el) => {
-    const code = $(el).attr("href").split("/").pop()
-    const name = $(el).text().trim()
-    if (code && name) btns.push(Markup.button.callback(name, `c_${code}`))
-  })
-
-  ctx.editMessageText(
-    "🌍 Choisis un pays",
-    Markup.inlineKeyboard(btns, { columns: 2 })
-  )
-})
-
-bot.action(/^c_/, async ctx => {
-  const country = ctx.callbackQuery.data.split("_")[1]
-
-  if (watchers[ctx.from.id]) {
-    clearInterval(watchers[ctx.from.id])
-    delete watchers[ctx.from.id]
-  }
-
-  const { data } = await axios.get(`https://sms24.me/en/countries/${country}`)
-  const $ = cheerio.load(data)
-
-  const numbers = []
-  $('a[href^="/en/numbers/"]').each((_, el) => {
-    numbers.push($(el).attr("href").split("/").pop())
-  })
-
-  if (!numbers.length) {
-    return ctx.answerCbQuery("Aucun numéro")
-  }
-
-  const number = numbers[Math.floor(Math.random() * numbers.length)]
-
-  ctx.editMessageText(
-    `📱 Numéro actif\n\n${number}`,
-    Markup.inlineKeyboard([
-      [Markup.button.callback("🔁 Changer", `c_${country}`)]
-    ])
-  )
-
-  watchers[ctx.from.id] = setInterval(async () => {
+// Middleware pour vérifier l'abonnement
+bot.use(async (ctx, next) => {
+  if (ctx.updateType === 'message') {
     try {
-      const { data } = await axios.get(`https://sms24.me/en/numbers/${number}`)
-      const $ = cheerio.load(data)
+      const chatMember = await ctx.telegram.getChatMember(CHANNEL, ctx.from.id);
+      if (['left', 'kicked'].includes(chatMember.status)) {
+        return ctx.reply(
+          `⚠️ Tu dois t'abonner à ${CHANNEL} pour utiliser ce bot !\n` +
+          `Clique ici pour t'abonner: ${CHANNEL}`
+        );
+      }
+    } catch (err) {
+      console.log('Erreur vérification abonnement:', err);
+      return ctx.reply('Erreur lors de la vérification de ton abonnement.');
+    }
+  }
+  return next();
+});
 
-      $(".card-body").each(async (_, el) => {
-        const from = $(el).find(".sms-from").text().replace("From:", "").trim()
-        const msg = $(el).find(".sms-text").text().trim()
-        if (!msg) return
+// Commande start
+bot.start(async (ctx) => {
+  await ctx.reply(
+    `👋 Salut ${ctx.from.first_name || ctx.from.username} !\n` +
+    `Tu es maintenant autorisé à utiliser le bot.`
+  );
+});
 
-        const code = extractCode(msg)
-        const key = number + code + msg.length
-        if (sent.has(key)) return
-        sent.add(key)
+// Fonction pour récupérer un numéro virtuel
+async function getVirtualNumber() {
+  try {
+    const res = await axios.get(`${NUM_API}/get_number`); // Ex: l'endpoint de ton API
+    if (res.data && res.data.number) {
+      return res.data; // { number: "123456789", country: "Russia", messages: [...] }
+    }
+    return null;
+  } catch (err) {
+    console.log('Erreur récupération numéro virtuel:', err);
+    return null;
+  }
+}
 
-        await bot.telegram.sendMessage(
-          GROUP_ID,
-          `📩 NOUVEAU MESSAGE\n\n☎️ Numéro : ${number}\n👤 From : ${from || "Inconnu"}\n🔐 Code : ${code}\n\n📝 ${msg}\n\n━━━━━━━━━━━━━━\n🔥 Digital Crew 243 ne dort jamais`,
-          { disable_web_page_preview: true }
-        )
-      })
-    } catch {}
-  }, 12000)
-})
+// Commande pour obtenir un numéro
+bot.command('number', async (ctx) => {
+  const prompt = await ctx.reply('📲 Récupération d’un numéro virtuel en cours...');
+  const data = await getVirtualNumber();
 
-bot.launch()
+  if (!data) return ctx.reply('❌ Impossible de récupérer un numéro pour l’instant.');
+
+  const number = data.number;
+  const country = data.country;
+  const messages = data.messages || [];
+
+  // Envoi du numéro à l'utilisateur avec boutons
+  await ctx.reply(
+    `✅ Voici ton numéro virtuel : +${number} (${country})`,
+    Markup.inlineKeyboard([
+      Markup.button.callback('📨 Inbox', `inbox_${number}`),
+      Markup.button.callback('🔄 Nouveau numéro', `new_number`)
+    ])
+  );
+
+  // Envoyer les messages existants au groupe
+  messages.slice(-5).forEach(async msg => {
+    await ctx.telegram.sendMessage(GROUP_ID, `📩 SMS de ${number} :\n\n${msg}`);
+  });
+
+  // Notification à l'admin
+  await ctx.telegram.sendMessage(ADMIN_ID, `🟢 ${ctx.from.first_name} a reçu le numéro: +${number}`);
+});
+
+// Callback pour Inbox
+bot.action(/inbox_(.+)/, async (ctx) => {
+  const number = ctx.match[1];
+  try {
+    const res = await axios.get(`${NUM_API}/get_messages?number=${number}`);
+    const messages = res.data.messages || [];
+    if (!messages.length) return ctx.reply('📭 Pas de message pour ce numéro.');
+
+    messages.slice(-5).forEach(msg => ctx.reply(`📩 ${msg}`));
+  } catch (err) {
+    console.log('Erreur inbox:', err);
+    ctx.reply('❌ Impossible de récupérer les messages.');
+  }
+});
+
+// Callback pour renouveler le numéro
+bot.action('new_number', async (ctx) => {
+  await ctx.reply('🔄 Récupération d’un nouveau numéro...');
+  // Réutiliser la commande /number
+  await bot.telegram.sendMessage(ctx.from.id, '/number');
+});
+
+// Démarrage du bot
+bot.launch();
+console.log('Bot démarré...');
