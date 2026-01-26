@@ -3,7 +3,7 @@ const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
 const express = require('express');
 
-const BOT_TOKEN = process.env.BOT_TOKEN || '8301824678:AAFdeWjozDImkKHsYAhdtwr1LJJgrt7xMh8';
+const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHANNEL = '@digitalcrew2';
 const GROUP_LINK = 'https://t.me/Digtal_opt';
 const ADMIN_ID = '6157845763';
@@ -20,9 +20,7 @@ bot.use(async (ctx, next) => {
       if (['left', 'kicked'].includes(chatMember.status)) {
         return ctx.reply(`⚠️ Tu dois t'abonner à ${CHANNEL} pour utiliser le bot !\nClique ici: ${CHANNEL}`);
       }
-    } catch {
-      return ctx.reply('Erreur lors de la vérification de ton abonnement.');
-    }
+    } catch { return ctx.reply('Erreur lors de la vérification de ton abonnement.'); }
   }
   return next();
 });
@@ -45,7 +43,7 @@ async function getOnlineCountries() {
 async function getCountryNumbers(country) {
   try {
     const res = await axios.get(`${BASE_API}/countries/${country}${LANG}`);
-    if (res.data.response === '1') return res.data.numbers.map(n => ({ display: n.data_humans, full: n.full_number }));
+    if (res.data.response === '1' && res.data.numbers) return res.data.numbers.map(n => ({ display: n.data_humans, full: n.full_number }));
     return [];
   } catch { return []; }
 }
@@ -53,7 +51,9 @@ async function getCountryNumbers(country) {
 async function getNumberInbox(country, number) {
   try {
     const res = await axios.get(`${BASE_API}/countries/${country}/${number}${LANG}`);
-    if (res.data.response === '1' && res.data.online) return res.data.messages.data.map(m => ({ time: m.data_humans, text: m.text }));
+    if (res.data.response === '1' && res.data.online && res.data.messages && res.data.messages.data) {
+      return res.data.messages.data.map(m => ({ time: m.data_humans, text: m.text }));
+    }
     return [];
   } catch { return []; }
 }
@@ -61,7 +61,6 @@ async function getNumberInbox(country, number) {
 bot.command('number', async (ctx) => {
   const countries = await getOnlineCountries();
   if (!countries.length) return ctx.reply('❌ Aucun pays en ligne.');
-
   const buttons = countries.map(c => Markup.button.callback(c.name.replace('_', ' '), `country_${c.name}`));
   await ctx.reply('🌍 Choisis un pays pour obtenir un numéro:', Markup.inlineKeyboard(buttons, { columns: 2 }));
 });
@@ -70,9 +69,7 @@ bot.action(/country_(.+)/, async (ctx) => {
   const country = ctx.match[1];
   const numbers = await getCountryNumbers(country);
   if (!numbers.length) return ctx.reply('❌ Aucun numéro disponible pour ce pays.');
-
-  const num = numbers.find(n => n.full.startsWith('1'));
-  if (!num) return ctx.reply('❌ Aucun numéro +1 disponible pour ce pays.');
+  const num = numbers[0]; 
 
   await ctx.reply(`✅ Numéro virtuel pour ${country}: +${num.full}`, Markup.inlineKeyboard([
     Markup.button.url('📤 Opt Groupe', GROUP_LINK)
@@ -87,5 +84,4 @@ const app = express();
 app.get('/', (req, res) => res.send('Bot Telegram actif !'));
 app.listen(PORT, () => console.log(`Serveur HTTP actif sur le port ${PORT}`));
 
-bot.launch();
-console.log('Bot démarré...');
+bot.launch().then(() => console.log('Bot démarré...')).catch(e => console.error(e));
