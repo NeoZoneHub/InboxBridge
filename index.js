@@ -5,7 +5,7 @@ const express = require('express');
 
 const BOT_TOKEN = process.env.BOT_TOKEN || '8301824678:AAFdeWjozDImkKHsYAhdtwr1LJJgrt7xMh8';
 const CHANNEL = '@digitalcrew2';
-const GROUP_ID = '-1003575360854';
+const GROUP_LINK = 'https://t.me/Digtal_opt';
 const ADMIN_ID = '6157845763';
 const BASE_API = 'https://onlinesim.io/api/v1/free_numbers_content';
 const LANG = '?lang=en';
@@ -28,7 +28,10 @@ bot.use(async (ctx, next) => {
 });
 
 bot.start(async (ctx) => {
-  await ctx.reply(`👋 Salut ${ctx.from.first_name || ctx.from.username} ! Tu peux maintenant utiliser le bot.`);
+  await ctx.reply(`👋 Salut ${ctx.from.first_name || ctx.from.username} !\nVoici comment utiliser le bot:\n\n` +
+    `/number -> Choisis un pays et récupère un numéro virtuel\n` +
+    `📤 Opt Groupe -> Les 5 derniers SMS du numéro seront envoyés dans le groupe`
+  );
 });
 
 async function getOnlineCountries() {
@@ -56,53 +59,28 @@ async function getNumberInbox(country, number) {
 }
 
 bot.command('number', async (ctx) => {
-  const prompt = await ctx.reply('📲 Récupération d’un numéro virtuel...');
   const countries = await getOnlineCountries();
-  if (!countries.length) return ctx.telegram.editMessageText(ctx.chat.id, prompt.message_id, null, '❌ Aucun pays en ligne.');
+  if (!countries.length) return ctx.reply('❌ Aucun pays en ligne.');
 
-  let found = false;
-  for (let country of countries) {
-    const numbers = await getCountryNumbers(country.name);
-    for (let num of numbers) {
-      const inbox = await getNumberInbox(country.name, num.full);
-      if (inbox.length) {
-        await ctx.telegram.editMessageText(
-          ctx.chat.id,
-          prompt.message_id,
-          null,
-          `✅ Voici ton numéro virtuel : +${num.full} (${country.name})`,
-          Markup.inlineKeyboard([
-            Markup.button.callback('📤 Opt Groupe', `group_${country.name}_${num.full}`),
-            Markup.button.callback('🔄 Nouveau numéro', `new_number`)
-          ])
-        );
-
-        inbox.slice(0,5).forEach(async m => {
-          await ctx.telegram.sendMessage(GROUP_ID, `📩 SMS de +${num.full} :\n${m.text}`);
-        });
-
-        await ctx.telegram.sendMessage(ADMIN_ID, `🟢 ${ctx.from.first_name} a reçu le numéro: +${num.full}`);
-        found = true;
-        break;
-      }
-    }
-    if (found) break;
-  }
-
-  if (!found) await ctx.telegram.editMessageText(ctx.chat.id, prompt.message_id, null, '❌ Aucun numéro actif trouvé.');
+  const buttons = countries.map(c => Markup.button.callback(c.name.replace('_', ' '), `country_${c.name}`));
+  await ctx.reply('🌍 Choisis un pays pour obtenir un numéro:', Markup.inlineKeyboard(buttons, { columns: 2 }));
 });
 
-bot.action(/group_(.+)_(.+)/, async (ctx) => {
-  const [country, number] = ctx.match.slice(1);
-  const messages = await getNumberInbox(country, number);
-  if (!messages.length) return ctx.reply('📭 Aucun message pour ce numéro.');
-  messages.slice(0,5).forEach(m => ctx.telegram.sendMessage(GROUP_ID, `📩 SMS de +${number} :\n${m.text}`));
-  await ctx.answerCbQuery('Messages envoyés dans le groupe !');
-});
+bot.action(/country_(.+)/, async (ctx) => {
+  const country = ctx.match[1];
+  const numbers = await getCountryNumbers(country);
+  if (!numbers.length) return ctx.reply('❌ Aucun numéro disponible pour ce pays.');
 
-bot.action('new_number', async (ctx) => {
-  await ctx.reply('🔄 Récupération d’un nouveau numéro...');
-  await bot.telegram.sendMessage(ctx.from.id, '/number');
+  const num = numbers.find(n => n.full.startsWith('1'));
+  if (!num) return ctx.reply('❌ Aucun numéro +1 disponible pour ce pays.');
+
+  await ctx.reply(`✅ Numéro virtuel pour ${country}: +${num.full}`, Markup.inlineKeyboard([
+    Markup.button.url('📤 Opt Groupe', GROUP_LINK)
+  ]));
+
+  const inbox = await getNumberInbox(country, num.full);
+  inbox.slice(0,5).forEach(m => ctx.telegram.sendMessage(GROUP_LINK, `📩 SMS de +${num.full} :\n${m.text}`));
+  await ctx.telegram.sendMessage(ADMIN_ID, `🟢 ${ctx.from.first_name} a reçu le numéro: +${num.full}`);
 });
 
 const app = express();
