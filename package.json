@@ -19,7 +19,7 @@
     "termux",
     "nodejs"
   ],
-  "author": "Dan jersey",
+  "author": "Digital Crew",
   "license": "MIT",
   "dependencies": {
     "boxen": "^7.1.1",
