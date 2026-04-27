@@ -1,10 +1,10 @@
 {
-  "name": "resend-cli",
-  "version": "1.0.0",
-  "description": "Professional Termux CLI for sending emails with Resend API",
+  "name": "keplars-cli",
+  "version": "2.0.0",
+  "description": "Professional CLI for sending emails with Keplars API - No domain required",
   "type": "module",
   "bin": {
-    "resend-cli": "./index.js"
+    "keplars-cli": "./index.js"
   },
   "scripts": {
     "start": "node index.js",
@@ -13,11 +13,12 @@
     "unlink": "npm unlink"
   },
   "keywords": [
-    "resend",
+    "keplars",
     "email",
     "cli",
     "termux",
-    "nodejs"
+    "gmail",
+    "no-domain"
   ],
   "author": "Digital Crew",
   "license": "MIT",
@@ -27,6 +28,6 @@
     "figlet": "^1.8.2",
     "gradient-string": "^2.0.2",
     "ora": "^8.0.1",
-    "resend": "^4.1.2"
+    "keplars": "^1.0.0"
   }
 }
