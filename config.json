@@ -1,0 +1,11 @@
+{
+  "apiKey": "",
+  "from": "WhatsApp Support <onboarding@resend.dev>",
+  "defaultDelay": 1,
+  "maxRecipients": 5,
+  "theme": "matrix",
+  "saveHistory": true,
+  "historyFile": "history.json",
+  "country": "SN",
+  "region": "sub-saharan-africa"
+}
